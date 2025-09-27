@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>AI Stethoscope Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    h2 { text-align: center; }
+    canvas { display: block; margin: 20px auto; }
+  </style>
+</head>
+<body>
+  <h2>AI Stethoscope Real-Time Dashboard</h2>
+
+  <canvas id="bpmChart" width="600" height="200"></canvas>
+  <canvas id="spo2Chart" width="600" height="200"></canvas>
+
+  <script>
+    // Replace with your Node.js server IP
+    const SERVER_URL = 'http://YOUR_SERVER_IP:3000/readings';
+
+    const bpmCtx = document.getElementById('bpmChart').getContext('2d');
+    const spo2Ctx = document.getElementById('spo2Chart').getContext('2d');
+
+    const bpmChart = new Chart(bpmCtx, {
+      type: 'line',
+      data: { labels: [], datasets: [{ label: 'BPM', data: [], borderColor: 'red', fill: false }] },
+      options: {
+        responsive: true,
+        animation: false,
+        scales: {
+          x: { title: { display: true, text: 'Time' } },
+          y: { min: 40, max: 180, title: { display: true, text: 'BPM' } }
+        }
+      }
+    });
+
+    const spo2Chart = new Chart(spo2Ctx, {
+      type: 'line',
+      data: { labels: [], datasets: [{ label: 'SpO₂', data: [], borderColor: 'blue', fill: false }] },
+      options: {
+        responsive: true,
+        animation: false,
+        scales: {
+          x: { title: { display: true, text: 'Time' } },
+          y: { min: 80, max: 100, title: { display: true, text: 'SpO₂ (%)' } }
+        }
+      }
+    });
+
+    async function fetchReadings() {
+      try {
+        const response = await fetch(SERVER_URL);
+        const data = await response.json();
+
+        const labels = data.map(r => new Date(r.timestamp).toLocaleTimeString()).reverse();
+        const bpmData = data.map(r => r.bpm).reverse();
+        const spo2Data = data.map(r => r.spo2).reverse();
+
+        bpmChart.data.labels = labels;
+        bpmChart.data.datasets[0].data = bpmData;
+        bpmChart.update();
+
+        spo2Chart.data.labels = labels;
+        spo2Chart.data.datasets[0].data = spo2Data;
+        spo2Chart.update();
+      } catch (err) {
+        console.error('Error fetching readings:', err);
+      }
+    }
+
+    // Refresh every 1 second
+    setInterval(fetchReadings, 1000);
+    fetchReadings(); // initial fetch
+  </script>
+</body>
+</html>

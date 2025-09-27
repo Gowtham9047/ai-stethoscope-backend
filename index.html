@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI-based Stethoscope Dashboard</title>
+<style>
+  body { font-family: Arial, sans-serif; background-color: #f2f2f2; margin: 0; padding: 0; }
+  .container { max-width: 800px; margin: 20px auto; background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+  h1 { text-align: center; }
+  label { display: block; margin: 10px 0 5px; }
+  input, select { width: 100%; padding: 8px; margin-bottom: 10px; border-radius: 5px; border: 1px solid #ccc; }
+  button { padding: 10px 20px; background-color: #4CAF50; color: #fff; border: none; border-radius: 5px; cursor: pointer; }
+  button:hover { background-color: #45a049; }
+  .readings { margin-top: 20px; background: #eef; padding: 10px; border-radius: 5px; }
+  .error { color: red; }
+  table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+  th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+  th { background-color: #f2f2f2; }
+  #chart-container { margin: 30px 0 10px 0; background: #edf; padding: 16px; border-radius: 8px; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+<div class="container">
+  <h1>Patient Dashboard</h1>
+
+  <form id="patientForm">
+    <label for="patientId">Patient ID:</label>
+    <input type="text" id="patientId" required />
+
+    <label for="name">Patient Name:</label>
+    <input type="text" id="name" required />
+
+    <label for="age">Age:</label>
+    <input type="number" id="age" required />
+
+    <label for="gender">Gender:</label>
+    <select id="gender" required>
+      <option value="">Select Gender</option>
+      <option value="Male">Male</option>
+      <option value="Female">Female</option>
+      <option value="Other">Other</option>
+    </select>
+    <button type="submit">Add Patient</button>
+  </form>
+
+  <div class="readings">
+    <h2>Latest Sensor Readings</h2>
+    <p>BPM: <span id="bpm">--</span></p>
+    <p>SpO2: <span id="spo2">--</span></p>
+    <p>Patient: <span id="patientName">--</span></p>
+    <p class="error" id="errorMsg"></p>
+  </div>
+
+  <div style="margin-top: 30px;">
+    <h2>Search Patient by ID</h2>
+    <input type="text" id="searchId" placeholder="Enter Patient ID" />
+    <button id="searchBtn">Search</button>
+    <button id="downloadBtn" style="margin-left:10px;background:#2196F3;">Download CSV</button>
+    <p class="error" id="searchError"></p>
+
+    <table id="patientTable" style="display:none;">
+      <thead>
+        <tr>
+          <th>Patient ID</th>
+          <th>Name</th>
+          <th>Age</th>
+          <th>Gender</th>
+          <th>BPM</th>
+          <th>SpO2</th>
+          <th>Last Reading Time</th>
+        </tr>
+      </thead>
+      <tbody id="patientTableBody"></tbody>
+    </table>
+
+    <div id="chart-container" style="display:none;">
+      <canvas id="historyChart"></canvas>
+    </div>
+
+    <table id="historyTable" style="width:100%; border-collapse: collapse; margin-top: 20px; display:none;">
+      <thead>
+        <tr>
+          <th>Timestamp</th>
+          <th>BPM</th>
+          <th>SpO2</th>
+        </tr>
+      </thead>
+      <tbody id="historyTableBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const serverURL = 'http://10.137.28.7:3000';
+let chart;
+let currentPatientId = '';
+
+document.getElementById('patientForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const patientId = document.getElementById('patientId').value.trim();
+  const name = document.getElementById('name').value.trim();
+  const age = parseInt(document.getElementById('age').value);
+  const gender = document.getElementById('gender').value.trim();
+
+  if (!patientId || !name || !age || !gender) {
+    document.getElementById('errorMsg').textContent = "All fields are required.";
+    return;
+  }
+
+  try {
+    const res = await fetch(`${serverURL}/addPatient`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ patientId, name, age, gender })
+    });
+    if (res.ok) {
+      document.getElementById('errorMsg').textContent = '';
+      alert('Patient added successfully!');
+      document.getElementById('patientName').textContent = name;
+    } else {
+      const data = await res.json();
+      document.getElementById('errorMsg').textContent = data.message || 'Server error';
+    }
+  } catch (err) {
+    document.getElementById('errorMsg').textContent = 'Network error';
+    console.error(err);
+  }
+});
+
+async function fetchReadings() {
+  try {
+    const res = await fetch(`${serverURL}/readings`);
+    if (!res.ok) throw new Error('Failed to fetch readings');
+    const readings = await res.json();
+    if (readings.length > 0) {
+      const latest = readings[readings.length - 1];
+      document.getElementById('bpm').textContent = latest.bpm || '--';
+      document.getElementById('spo2').textContent = latest.spo2 || '--';
+      document.getElementById('patientName').textContent = latest.name || '--';
+    } else {
+      document.getElementById('bpm').textContent = '--';
+      document.getElementById('spo2').textContent = '--';
+      document.getElementById('patientName').textContent = '--';
+    }
+  } catch (err) {
+    console.error(err);
+  }
+}
+setInterval(fetchReadings, 2000);
+
+// Search Button logic
+document.getElementById('searchBtn').addEventListener('click', async () => {
+  const patientId = document.getElementById('searchId').value.trim();
+  const searchError = document.getElementById('searchError');
+  const patientTable = document.getElementById('patientTable');
+  const patientTableBody = document.getElementById('patientTableBody');
+  const chartContainer = document.getElementById('chart-container');
+  const historyTable = document.getElementById('historyTable');
+  const historyTableBody = document.getElementById('historyTableBody');
+
+  searchError.textContent = '';
+  patientTableBody.innerHTML = '';
+  patientTable.style.display = 'none';
+  chartContainer.style.display = 'none';
+  historyTable.style.display = 'none';
+  historyTableBody.innerHTML = '';
+
+  if (!patientId) {
+    searchError.textContent = 'Please enter a Patient ID to search';
+    return;
+  }
+
+  currentPatientId = patientId;
+
+  // Fetch and display patient info
+  try {
+    const res = await fetch(`${serverURL}/getPatientById?patientId=${encodeURIComponent(patientId)}`);
+    if (!res.ok) throw new Error('Patient not found');
+    const patient = await res.json();
+
+    if (!patient || !patient.name) {
+      searchError.textContent = 'Patient not found';
+      return;
+    }
+
+    patientTable.style.display = 'table';
+    const lastReadingTime = patient.lastReadingTimestamp ? new Date(patient.lastReadingTimestamp).toLocaleString() : '--';
+
+    patientTableBody.innerHTML = `
+      <tr>
+        <td>${patient.patientId || '--'}</td>
+        <td>${patient.name || '--'}</td>
+        <td>${patient.age || '--'}</td>
+        <td>${patient.gender || '--'}</td>
+        <td>${patient.bpm || '--'}</td>
+        <td>${patient.spo2 || '--'}</td>
+        <td>${lastReadingTime}</td>
+      </tr>
+    `;
+  } catch (err) {
+    searchError.textContent = 'Error fetching patient details';
+    return;
+  }
+
+  // Fetch history readings for chart and table
+  try {
+    const resHistory = await fetch(`${serverURL}/readingsHistory?patientId=${encodeURIComponent(patientId)}`);
+    if (!resHistory.ok) throw new Error('No history');
+    const history = await resHistory.json();
+
+    if (history.length === 0) {
+      chartContainer.style.display = 'none';
+      historyTable.style.display = 'none';
+      return;
+    }
+
+    // Show chart container and render graph
+    chartContainer.style.display = 'block';
+    const ctx = document.getElementById('historyChart').getContext('2d');
+
+    const labels = history.map(r => new Date(r.timestamp).toLocaleTimeString());
+    const bpmData = history.map(r => r.bpm);
+    const spo2Data = history.map(r => r.spo2);
+
+    if (chart) chart.destroy();
+
+    chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: 'BPM',
+            data: bpmData,
+            borderColor: '#4CAF50',
+            backgroundColor: 'rgba(76, 175, 80, 0.15)',
+            fill: false
+          },
+          {
+            label: 'SpO2',
+            data: spo2Data,
+            borderColor: '#2196F3',
+            backgroundColor: 'rgba(33, 150, 243, 0.15)',
+            fill: false
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          x: { display: true, title: { display: true, text: 'Time' } },
+          y: { display: true, title: { display: true, text: 'Value' }, min: 40, max: 100 }
+        }
+      }
+    });
+
+    // Show full history table
+    historyTable.style.display = 'table';
+    historyTableBody.innerHTML = '';
+    history.forEach(reading => {
+      const row = document.createElement('tr');
+
+      const timeCell = document.createElement('td');
+      timeCell.textContent = new Date(reading.timestamp).toLocaleString();
+      row.appendChild(timeCell);
+
+      const bpmCell = document.createElement('td');
+      bpmCell.textContent = reading.bpm;
+      row.appendChild(bpmCell);
+
+      const spo2Cell = document.createElement('td');
+      spo2Cell.textContent = reading.spo2;
+      row.appendChild(spo2Cell);
+
+      historyTableBody.appendChild(row);
+    });
+
+  } catch (err) {
+    chartContainer.style.display = 'none';
+    historyTable.style.display = 'none';
+  }
+});
+
+// Download CSV
+document.getElementById('downloadBtn').addEventListener('click', () => {
+  if (!currentPatientId) {
+    alert('Search or enter a Patient ID first!');
+    return;
+  }
+  window.open(`${serverURL}/historyCsv?patientId=${encodeURIComponent(currentPatientId)}`, '_blank');
+});
+</script>
+
+</body>
+</html>
