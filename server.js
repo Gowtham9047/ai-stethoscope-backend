@@ -6,6 +6,11 @@ const { MongoClient, ObjectId } = require('mongodb');
 app.use(cors());
 app.use(express.json());
 
+// Root route handler to avoid 'Cannot GET /' error
+app.get('/', (req, res) => {
+  res.send('Welcome to AI Stethoscope Backend');
+});
+
 // MongoDB Atlas Connection URI with your encoded password and database name
 const uri = 'mongodb+srv://gr9832791_db_user:Gowtham%400923@cluster0.ujfng1a.mongodb.net/healthDB?retryWrites=true&w=majority&appName=Cluster0';
 
